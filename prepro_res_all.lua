@@ -25,7 +25,8 @@ local t = require '../../CNN_Model/fb.resnet.torch/datasets/transforms'
 cmd = torch.CmdLine()
 cmd:text()
 cmd:text('Options')
-cmd:option('-input_json','data_train-val_test-dev_2k/data_prepro.json','path to the json file containing vocab and answers')
+--cmd:option('-input_json','data_train-val_test-dev_2k/data_prepro.json','path to the json file containing vocab and answers')
+cmd:option('-image_list_dir','.','path to the image lists')
 cmd:option('-image_root','','path to the image root')
 cmd:option('-cnn_model', '', 'path to the cnn model')
 cmd:option('-batch_size', 10, 'batch_size')
@@ -95,30 +96,32 @@ local image_root = opt.image_root
 -- open the mdf5 file
 local features = hdf5.open(opt.out_path, 'w')
 
-local file = io.open(opt.input_json, 'r')
-local text = file:read()
-file:close()
-json_file = cjson.decode(text)
-
-local train_list={}
-for i,imname in pairs(json_file['unique_img_train']) do
-    table.insert(train_list, image_root .. imname)
+local image_list={}
+local f = io.input(paths.concat(opt.image_list_dir, 'imlist_train2014.txt'))
+for line in io.lines() do
+    table.insert(image_list, paths.concat(image_root, 'train2014', line))
 end
-
-local test_list={}
-for i,imname in pairs(json_file['unique_img_test']) do
-    table.insert(test_list, image_root .. imname)
+io.close(f)
+f = io.input(paths.concat(opt.image_list_dir, 'imlist_val2014.txt'))
+for line in io.lines() do
+    table.insert(image_list, paths.concat(image_root, 'val2014', line))
 end
+io.close(f)
+f = io.input(paths.concat(opt.image_list_dir, 'imlist_test2015.txt'))
+for line in io.lines() do
+    table.insert(image_list, paths.concat(image_root, 'test2015', line))
+end
+io.close(f)
 
 local batch_size = opt.batch_size
-local sz=#train_list
+local sz=#image_list
 print(string.format('processing %d images...',sz))
 for i=1,sz,batch_size do
     xlua.progress(i, sz)
     r=math.min(sz,i+batch_size-1)
     ims=torch.CudaTensor(r-i+1,3,448,448)
     for j=1,r-i+1 do
-        ims[j]=loadim(train_list[i+j-1]):cuda()
+        ims[j]=loadim(image_list[i+j-1]):cuda()
     end
     net:forward(ims)
     feat=net.output:clone()
@@ -134,38 +137,11 @@ for i=1,sz,batch_size do
         feat=l2normalizer:forward(feat)
     end
     for j=1,r-i+1 do
-        features:write(paths.basename(train_list[i+j-1]), feat[j]:float())
+        features:write(paths.basename(image_list[i+j-1]), feat[j]:float())
     end
-    collectgarbage()
-end
-
-print('DataLoader loading h5 file: ', 'data_train')
-local sz=#test_list
-print(string.format('processing %d images...',sz))
-for i=1,sz,batch_size do
-    xlua.progress(i, sz)    
-    r=math.min(sz,i+batch_size-1)
-    ims=torch.CudaTensor(r-i+1,3,448,448)
-    for j=1,r-i+1 do
-        ims[j]=loadim(test_list[i+j-1]):cuda()
+    if (i-1)%50000==0 then
+        collectgarbage()
     end
-    net:forward(ims)
-    feat=net.output:clone()
-    if opt.l2norm then
-        local batch_size=r-i+1
-        local l2normalizer=nn.Sequential()
-            :add(nn.Transpose({2,3},{3,4}))
-            :add(nn.Reshape(batch_size*14*14,2048,false))
-            :add(nn.Normalize(2))
-            :add(nn.Reshape(batch_size,14,14,2048,false))
-            :add(nn.Transpose({3,4},{2,3}))
-        l2normalizer=l2normalizer:cuda()
-        feat=l2normalizer:forward(feat)
-    end
-    for j=1,r-i+1 do
-       features:write(paths.basename(test_list[i+j-1]), feat[j]:float())
-    end
-    collectgarbage()
 end
 
 features:close()

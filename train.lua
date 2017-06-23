@@ -9,7 +9,7 @@
 
 require 'nn'
 require 'rnn'
-require 'dp'
+--require 'dp'
 require 'torch'
 require 'optim'
 require 'cutorch'
@@ -108,7 +108,10 @@ local dropout=opt.dropout
 local glimpse=opt.glimpse
 local decay_factor = 0.99997592083  -- math.exp(math.log(0.1)/opt.learning_rate_decay_every/opt.iterPerEpoch)
 local question_max_length=26
-local seconds=readAll(opt.input_seconds)
+local seconds
+if opt.seconds then
+   seconds=readAll(opt.input_seconds)
+end
 paths.mkdir(model_path)
 
 ------------------------------------------------------------------------
@@ -179,8 +182,8 @@ if opt.rnn_model == 'GRU' then
    gru = torch.load(paths.concat(opt.input_skip, 'gru.t7'))
    -- Bayesian GRUs have right dropouts
    rnn_model = nn.GRU(embedding_size_q, rnn_size_q, false, .25, true)
-   skip_params = gru:parameters()
-   rnn_model:migrate(skip_params)
+   --skip_params = gru:parameters()
+   --rnn_model:migrate(skip_params)
    rnn_model:trimZero(1)
    gru = nil
 
