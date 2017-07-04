@@ -94,7 +94,6 @@ dataset['question'] = h5_file:read('/ques_test'):all()
 dataset['lengths_q'] = h5_file:read('/ques_length_test'):all()
 dataset['img_list'] = h5_file:read('/img_pos_test'):all()
 dataset['ques_id'] = h5_file:read('/question_id_test'):all()
-dataset['MC_ans_test'] = h5_file:read('/MC_ans_test'):all()
 h5_file:close()
 
 print('DataLoader loading h5 file: ', opt.input_img_h5)
@@ -328,23 +327,5 @@ end
 
 paths.mkdir(opt.out_path)
 saveJson(opt.out_path .. 'vqa_OpenEnded_mscoco_'..opt.type..'_'..model_name..'_results.json',response);
-
-mc_response={};
-
-for i=1,nqs do
-	local mc_prob = {}
-	local mc_idx = dataset['MC_ans_test'][i]
-	local tmp_idx = {}
-	for j=1, mc_idx:size()[1] do
-		if mc_idx[j] ~= 0 then
-			table.insert(mc_prob, scores[{i, mc_idx[j]}])
-			table.insert(tmp_idx, mc_idx[j])
-		end
-	end
-	local tmp,tmp2=torch.max(torch.Tensor(mc_prob), 1);
-	table.insert(mc_response, {question_id=qids[i],answer=json_file['ix_to_ans'][tostring(tmp_idx[tmp2[1]])]})
-end
-
-saveJson(opt.out_path .. 'vqa_MultipleChoice_mscoco_'..opt.type..'_'..model_name..'_results.json',mc_response);
 
 h5_file:close()

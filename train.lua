@@ -179,7 +179,7 @@ if opt.rnn_model == 'GRU' then
    lookup = torch.load(paths.concat(opt.input_skip, lookupfile))
    assert(lookup.weight:size(1)==vocabulary_size_q+1)  -- +1 for zero
    assert(lookup.weight:size(2)==embedding_size_q)
-   gru = torch.load(paths.concat(opt.input_skip, 'gru.t7'))
+   --gru = torch.load(paths.concat(opt.input_skip, 'gru.t7'))
    -- Bayesian GRUs have right dropouts
    rnn_model = nn.GRU(embedding_size_q, rnn_size_q, false, .25, true)
    --skip_params = gru:parameters()
