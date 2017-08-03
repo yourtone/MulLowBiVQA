@@ -134,3 +134,27 @@ function netdef.MLBS1(rnn_size_q,nhimage,common_embedding_size,joint_dropout,num
          :add(nn.Linear(common_embedding_size*glimpse,noutput))
    return multimodal_net
 end
+
+function netdef.MLBS1_updateBatchSize(net,nhimage,common_embedding_size,num_layers,batch_size,glimpse)
+   local ngrid=14*14
+   local idx=2  -- start idx
+   local mstep=5
+   local glimpse=glimpse or 2
+   for i=0,num_layers-1 do
+      local att=net:get(idx+i*mstep)
+      local a1=att:get(3):get(1):get(2)
+      assert(torch.type(a1:get(5)) == 'nn.Reshape')
+      assert(torch.type(a1:get(1)) == 'nn.Reshape')
+      a1:remove(5)
+      a1:remove(1)
+      a1:insert(nn.Reshape(batch_size*ngrid,nhimage,false),1)
+      a1:insert(nn.Reshape(batch_size,ngrid,common_embedding_size,false),5)
+      local a2=att:get(3)
+      assert(torch.type(a2:get(6)) == 'nn.Reshape')
+      assert(torch.type(a2:get(3)) == 'nn.Reshape')
+      a2:remove(6)
+      a2:remove(3)
+      a2:insert(nn.Reshape(batch_size,14,14,common_embedding_size,false),3)
+      a2:insert(nn.Reshape(batch_size,glimpse,ngrid,false),6)
+   end
+end

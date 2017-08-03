@@ -29,10 +29,9 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_img_h5','data_train-val_test-dev_2k/data_res.h5','path to the h5file containing the image feature')
-cmd:option('-input_ques_h5','data_train-val_test-dev_2k/data_prepro.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','data_train-val_test-dev_2k/data_prepro.json','path to the json file containing additional info and vocab')
-cmd:option('-input_skip','skipthoughts_model','path to skipthoughts_params')
+cmd:option('-split', 1, '1: train on Train and test on Val, 2: train on Tr+V and test on Te, 3: train on Tr+V and test on Te-dev')
+cmd:option('-input_img_h5','data/feature/data_real_res.h5','path to the h5file containing the image feature')
+--cmd:option('-input_skip','skipthoughts_model','path to skipthoughts_params')
 cmd:option('-mhdf5_size', 10000)
 
 -- Model parameter settings
@@ -117,14 +116,24 @@ paths.mkdir(model_path)
 ------------------------------------------------------------------------
 -- Loading Dataset
 ------------------------------------------------------------------------
-local file = io.open(opt.input_json, 'r')
+------ path setting start ------
+if opt.split == 1 then input_path_prefix = 'data_train_val'
+elseif opt.split == 2 then input_path_prefix = 'data_train-val_test'
+elseif opt.split == 3 then input_path_prefix = 'data_train-val_test-dev'
+end
+input_path = string.format('%s_%dk', input_path_prefix, (opt.num_output/1000))
+input_ques_h5 = paths.concat(input_path, 'data_prepro.h5')
+input_json = paths.concat(input_path, 'data_prepro.json')
+------ path setting end ------
+
+local file = io.open(input_json, 'r')
 local text = file:read()
 file:close()
 json_file = cjson.decode(text)
 
-print('DataLoader loading h5 file: ', opt.input_ques_h5)
+print('DataLoader loading h5 file: ', input_ques_h5)
 dataset = {}
-local h5_file = hdf5.open(opt.input_ques_h5, 'r')
+local h5_file = hdf5.open(input_ques_h5, 'r')
 local nhimage = 2048
 
 dataset['question'] = h5_file:read('/ques_train'):all()
@@ -133,6 +142,7 @@ dataset['lengths_q'] = h5_file:read('/ques_length_train'):all()
 dataset['img_list'] = h5_file:read('/img_pos_train'):all()
 dataset['answers'] = h5_file:read('/answers'):all()
 h5_file:close()
+local ntrqs=dataset['question']:size(1)
 
 if opt.vg then
    h5_file = hdf5.open(opt.vg_ques_h5, 'r')
@@ -172,11 +182,8 @@ buffer_size_q=dataset['question']:size()[2]
 if opt.rnn_model == 'GRU' then
    -- skip-thought vectors
    -- lookup = nn.LookupTableMaskZero(vocabulary_size_q, embedding_size_q)
-   if opt.num_output == 1000 then lookupfile = 'lookup_fix.t7'
-   elseif opt.num_output == 2000 then lookupfile = 'lookup_2k.t7' 
-   elseif opt.num_output == 3000 then lookupfile = 'lookup_3k.t7' 
-   end
-   lookup = torch.load(paths.concat(opt.input_skip, lookupfile))
+   --lookup = torch.load(paths.concat(opt.input_skip, string.format('lookup_%dk.t7', (opt.num_output/1000))))
+   lookup = torch.load(paths.concat(input_path, 'skipthoughts.t7'))
    assert(lookup.weight:size(1)==vocabulary_size_q+1)  -- +1 for zero
    assert(lookup.weight:size(2)==embedding_size_q)
    --gru = torch.load(paths.concat(opt.input_skip, 'gru.t7'))
@@ -374,6 +381,7 @@ end
 -- Training
 ------------------------------------------------------------------------
 local state={}
+local old_epoch = 0
 optimize.learningRate=optimize.learningRate*decay_factor^opt.previous_iters
 optimize.learningRate=optimize.learningRate*2^math.min(2, math.floor(opt.previous_iters/opt.kick_interval))
 for iter = opt.previous_iters + 1, opt.max_iters do
@@ -381,8 +389,19 @@ for iter = opt.previous_iters + 1, opt.max_iters do
       paths.mkdir(model_path..'save')
       torch.save(string.format(model_path..'save/'..model_name..'_iter%d.t7',iter),w) 
    end
+   local epoch = math.floor(iter*batch_size/ntrqs)
    if iter%100 == 0 then
-      print('training loss: ' .. running_avg, 'on iter: ' .. iter .. '/' .. opt.max_iters)
+      totalEpoch = math.floor(opt.max_iters*batch_size/ntrqs)
+      print('training loss: ' .. running_avg,
+         'on iter: ' .. iter .. '/' .. opt.max_iters,
+         'on epoch: ' .. epoch .. '/' .. totalEpoch)
+   end
+   if epoch - old_epoch > 0 then -- finished one epoch
+      -- do evaluation
+      old_epoch = epoch
+      if epoch >= 2 then
+         -- draw
+      end
    end
    -- double learning rate at two iteration points
    if iter==opt.kick_interval or iter==opt.kick_interval*2 then

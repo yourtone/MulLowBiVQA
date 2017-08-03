@@ -25,9 +25,8 @@ cmd:text('Test the Visual Question Answering model')
 cmd:text()
 cmd:text('Options')
 -- Data input settings
+cmd:option('-split', 1, '1: train on Train and test on Val, 2: train on Tr+V and test on Te, 3: train on Tr+V and test on Te-dev')
 cmd:option('-input_img_h5','data_train-val_test-dev_2k/data_res.h5','path to the h5file containing the image feature')
-cmd:option('-input_ques_h5','data_train-val_test-dev_2k/data_prepro.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','data_train-val_test-dev_2k/data_prepro.json','path to the json file containing additional info and vocab')
 cmd:option('-model_path', 'model/mrn2k.t7', 'path to a model checkpoint to initialize model weights from. Empty = don\'t')
 cmd:option('-out_path', 'result/', 'path to save output json file')
 cmd:option('-out_prob', false, 'save prediction probability matrix as `model_name.t7`')
@@ -79,16 +78,25 @@ local glimpse=opt.glimpse
 ------------------------------------------------------------------------
 -- Loading Dataset
 ------------------------------------------------------------------------
-print('DataLoader loading h5 file: ', opt.input_json)
+------ path setting start ------
+if opt.split == 1 then input_path_prefix = 'data_train_val'
+elseif opt.split == 2 then input_path_prefix = 'data_train-val_test'
+elseif opt.split == 3 then input_path_prefix = 'data_train-val_test-dev'
+end
+input_path = string.format('%s_%dk', input_path_prefix, (opt.num_output/1000))
+input_ques_h5 = paths.concat(input_path, 'data_prepro.h5')
+input_json = paths.concat(input_path, 'data_prepro.json')
+------ path setting end ------
 
-local file = io.open(opt.input_json, 'r')
+print('DataLoader loading h5 file: ', input_json)
+local file = io.open(input_json, 'r')
 local text = file:read()
 file:close()
 json_file = cjson.decode(text)
 
-print('DataLoader loading h5 file: ', opt.input_ques_h5)
+print('DataLoader loading h5 file: ', input_ques_h5)
 dataset = {}
-local h5_file = hdf5.open(opt.input_ques_h5, 'r')
+local h5_file = hdf5.open(input_ques_h5, 'r')
 
 dataset['question'] = h5_file:read('/ques_test'):all()
 dataset['lengths_q'] = h5_file:read('/ques_length_test'):all()

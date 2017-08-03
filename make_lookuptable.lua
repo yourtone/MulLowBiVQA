@@ -38,13 +38,15 @@ vocab_size = 0
 for i, w in pairs(json_file['ix_to_word']) do vocab_size = vocab_size + 1 end
 print('vocab size: '..vocab_size)
 
-output_vocab = string.format('vocab_%dk.txt', (opt.num_output/1000))
-vocab = io.open(paths.concat(input_path, output_vocab), 'w')
+--output_vocab = string.format('vocab_%dk.txt', (opt.num_output/1000))
+--output_vocab_path = paths.concat(input_path, output_vocab)
+output_vocab_path = paths.concat(input_path, 'vocab.txt')
+vocab = io.open(output_vocab_path, 'w')
 for i=1,vocab_size do
    vocab:write(json_file.ix_to_word[tostring(i)] .. '\n')
 end
 vocab:close()
-print('write vocab txt to: '..paths.concat(input_path, output_vocab))
+print('write vocab txt to: '..output_vocab_path)
 ------------------------------------------------------------------------------
 -- If you need word frequencies, use this code.
 -- h5_file = hdf5.open(paths.concat(input_path, opt.input_ques_h5), 'r')
@@ -70,6 +72,8 @@ assert(tmp:size(2) == 620)
 lookup.weight[1]:zero()
 lookup.weight:narrow(1,2,vocab_size):copy(tmp:narrow(1,1,vocab_size));
 --torch.save('lookup_2k.t7', lookup)
-lookupfile = string.format('lookup_%dk.t7', (opt.num_output/1000))
-torch.save(paths.concat(opt.output_skip, lookupfile), lookup)
-print('save lookupfile to: '..paths.concat(opt.output_skip, lookupfile))
+--lookupfile = string.format('lookup_%dk.t7', (opt.num_output/1000))
+--lookupfilepath = paths.concat(opt.output_skip, lookupfile)
+lookupfilepath = paths.concat(input_path, 'skipthoughts.t7')
+torch.save(lookupfilepath, lookup)
+print('save lookupfile to: '..lookupfilepath)
