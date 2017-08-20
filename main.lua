@@ -92,7 +92,7 @@ end
 local model_name = opt.model_name..opt.label..'_L'..opt.num_layers
 local num_layers = opt.num_layers
 local model_path = opt.checkpoint_path
-local batch_size=opt.batch_size
+local batch_size = opt.batch_size
 local nhimage = 2048
 local embedding_size_q=opt.input_encoding_size
 local rnn_size_q=opt.rnn_size
@@ -138,20 +138,22 @@ print('DataLoader loading h5 file: ', input_ques_h5)
 local h5f = hdf5.open(input_ques_h5, 'r')
 trainset = {}
 trainset['question'] = h5f:read('/ques_train'):all()
-trainset['question_id'] = h5f:read('/question_id_train'):all()
+trainset['ques_id'] = h5f:read('/question_id_train'):all()
 trainset['lengths_q'] = h5f:read('/ques_length_train'):all()
 trainset['img_list'] = h5f:read('/img_pos_train'):all()
 trainset['answers'] = h5f:read('/answers'):all()
 testset = {}
 testset['question'] = h5f:read('/ques_test'):all()
+testset['ques_id'] = h5f:read('/question_id_test'):all()
 testset['lengths_q'] = h5f:read('/ques_length_test'):all()
 testset['img_list'] = h5f:read('/img_pos_test'):all()
-testset['ques_id'] = h5f:read('/question_id_test'):all()
 h5f:close()
 trainset['question'] = right_align(trainset['question'],trainset['lengths_q'])
 testset['question'] = right_align(testset['question'],testset['lengths_q'])
-local ntrqs=trainset['question']:size(1)
-local nttqs=testset['question']:size(1)
+trainset.N = trainset['question']:size(1)
+trainset.s = 1 -- start index
+trainset.ep = 1 -- start epoch
+testset.N = testset['question']:size(1)
 
 print('DataLoader loading img file: ', opt.input_img_h5)
 local h5f = hdf5.open(opt.input_img_h5, 'r')
@@ -227,13 +229,15 @@ print('decay_factor =', decay_factor)
 ------------------------------------------------------------------------
 -- Next batch for train/test
 ------------------------------------------------------------------------
-function trainset:next_batch(batch_size)
-   local qinds=torch.LongTensor(batch_size):fill(0)
-   local iminds=torch.LongTensor(batch_size):fill(0)
-   local fv_im=torch.Tensor(batch_size,2048,14,14)
-   -- we use the last val_num data for validation (the data already randomlized when created)
-   for i=1,batch_size do
-      qinds[i]=torch.random(ntrqs)
+function trainset:next_batch_train(batch_size)
+   local s=trainset.s
+   local e=math.min(s+batch_size-1,trainset.N)
+   local train_bs=e-s+1
+   local qinds=torch.LongTensor(train_bs):fill(0)
+   local iminds=torch.LongTensor(train_bs):fill(0)
+   local fv_im=torch.Tensor(train_bs,2048,14,14)
+   for i=1,train_bs do
+      qinds[i]=s+i-1
       iminds[i]=trainset['img_list'][qinds[i]]
       fv_im[i]:copy(h5_cache:get(paths.basename(train_list[iminds[i]])))
    end
@@ -245,7 +249,8 @@ function trainset:next_batch(batch_size)
       labels = labels:cuda()
       fv_im = fv_im:cuda()
    end
-   return fv_sorted_q,fv_im,labels
+   trainset.s = e + 1
+   return fv_sorted_q,fv_im,labels,train_bs
 end
 function testset:next_batch_test(s,e)
    local test_bs=e-s+1
@@ -274,11 +279,36 @@ function JdJ(x)
    --clear gradients--
    dw:zero()
    --grab a batch--
-   local fv_sorted_q,fv_im,labels=trainset:next_batch(batch_size)
+   local fv_sorted_q,fv_im,labels,train_bs=trainset:next_batch_train(batch_size)
+
+   if train_bs ~= batch_size then
+      netdef[opt.model_name..'_updateBatchSize'](multimodal_net,nhimage,common_embedding_size,
+         num_layers,train_bs,glimpse)
+      model:cuda()
+   end
    local scores = model:forward({fv_sorted_q, fv_im})
    local f=criterion:forward(scores,labels)
    local dscores=criterion:backward(scores,labels)
    model:backward(fv_sorted_q, dscores)
+   if train_bs ~= batch_size then
+      netdef[opt.model_name..'_updateBatchSize'](multimodal_net,nhimage,common_embedding_size,
+         num_layers,batch_size,glimpse)
+      model:cuda()
+   end
+   -- finish 1 epoch
+   if trainset.s>trainset.N then
+      trainset.ep = trainset.ep + 1
+      -- for next epoch
+      trainset.s = 1
+      -- shuffle trainset samples
+      local qinds=torch.randperm(trainset.N):long()
+      trainset['question'] = trainset['question']:index(1,qinds)
+      trainset['ques_id'] = trainset['ques_id']:index(1,qinds)
+      trainset['lengths_q'] = trainset['lengths_q']:index(1,qinds)
+      trainset['img_list'] = trainset['img_list']:index(1,qinds)
+      trainset['answers'] = trainset['answers']:index(1,qinds)
+      assert(trainset.N == trainset['question']:size(1))
+   end
 
    gradients=dw
    if opt.clipping > 0 then gradients:clamp(-opt.clipping,opt.clipping) end
@@ -297,8 +327,8 @@ function forward(s,e)
    if test_bs ~= batch_size then
       netdef[opt.model_name..'_updateBatchSize'](multimodal_net,nhimage,common_embedding_size,
          num_layers,test_bs,glimpse)
+      model:cuda()
    end
-   model:cuda()
    local scores = model:forward({fv_sorted_q, fv_im})
    if test_bs ~= batch_size then
       netdef[opt.model_name..'_updateBatchSize'](multimodal_net,nhimage,common_embedding_size,
@@ -317,17 +347,18 @@ end
 function test(model_append)
    model:evaluate()
 
-   scores=torch.Tensor(nttqs,noutput)
-   qids=torch.LongTensor(nttqs)
-   for i=1,nttqs,batch_size do
-      xlua.progress(i, nttqs)
-      if batch_size>nttqs-i then xlua.progress(nttqs, nttqs) end
-      r=math.min(i+batch_size-1,nttqs)
+   local N = testset.N
+   scores=torch.Tensor(N,noutput)
+   qids=torch.LongTensor(N)
+   for i=1,N,batch_size do
+      xlua.progress(i, N)
+      if batch_size>N-i then xlua.progress(N, N) end
+      r=math.min(i+batch_size-1,N)
       scores[{{i,r},{}}],qids[{{i,r}}]=forward(i,r)
    end
    tmp,pred=torch.max(scores,2)
    response={}
-   for i=1,nttqs do
+   for i=1,N do
       table.insert(response,{question_id=qids[i],answer=json_file['ix_to_ans'][tostring(pred[{i,1}])]})
    end
    local oe_txt = cjson.encode(response)
@@ -352,9 +383,9 @@ end
 -- Training
 ------------------------------------------------------------------------
 local state={}
-local max_epochs = math.floor(opt.max_iters/2000)
---local max_epochs = math.floor(opt.max_iters*batch_size/ntrqs)
-local old_epoch = 0
+--local max_epochs = math.floor(opt.max_iters/4000)
+local max_epochs = math.floor(opt.max_iters*batch_size/trainset.N)
+local epoch = trainset.ep
 local trainlosshandle, trainacchandle, testlosshandle, testacchandle
 local trainlosshist = torch.DoubleTensor(opt.max_iters):fill(0)
 local trainacchist  = torch.DoubleTensor(opt.max_iters):fill(0)
@@ -387,13 +418,11 @@ for iter = opt.previous_iters + 1, opt.max_iters do
       }  -- create new plot if it does not yet exist, otherwise, update plot
    end
    -- print loss information every 100 iters
-   local epoch = math.floor(iter/2000)
-   --local epoch = math.floor(iter*batch_size/ntrqs)
    if iter%100 == 0 then
       print(string.format('training loss: %f on iter: %d/%d on epoch: %d/%d',
          running_avg_train, iter, opt.max_iters, epoch, max_epochs))
    end
-   if epoch - old_epoch > 0 then -- finished one epoch
+   if trainset.ep > epoch then -- finished one epoch
       print(string.format('====== training time per epoch: %dm%ds',timer:time().real/60,timer:time().real%60))
       -- do evaluation
       timer:reset();
@@ -401,8 +430,7 @@ for iter = opt.previous_iters + 1, opt.max_iters do
       print(string.format('====== testing time: %dm%ds',timer:time().real/60,timer:time().real%60))
       timer:reset();
       testacchist[epoch] = acc
-      old_epoch = epoch
-      if epoch >= 2 then
+      if epoch > 1 then
          -- draw
          testlosshandle = plot:line{
             X = torch.range(1,epoch):double(),
@@ -411,6 +439,7 @@ for iter = opt.previous_iters + 1, opt.max_iters do
             options={markers=false, xlabel='epoch', ylabel='accuracy', title='Testing accuracy'}
          }
       end
+      epoch = trainset.ep
    end
 
    if iter > opt.learning_rate_decay_start and opt.learning_rate_decay_start >= 0 then
