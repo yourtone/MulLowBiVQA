@@ -188,6 +188,7 @@ embedding_net_q=nn.Sequential()
 
 require('netdef.'..opt.model_name)
 multimodal_net=netdef[opt.model_name](rnn_size_q,nhimage,common_embedding_size,dropout,num_layers,noutput,batch_size,glimpse)
+print('Multimodal Architecture:')
 print(multimodal_net)
 
 local model = nn.Sequential()
@@ -197,6 +198,8 @@ local model = nn.Sequential()
          :add(encoder_net_q))
       :add(nn.Identity()))
    :add(multimodal_net)
+print('Model Architecture:')
+print(model)
 
 --criterion
 criterion=nn.CrossEntropyCriterion()
@@ -208,7 +211,7 @@ if opt.gpuid >= 0 then
 end
 
 local multimodal_w=multimodal_net:getParameters()
-multimodal_w:uniform(-0.08, 0.08)
+multimodal_w:uniform(-0.08, 0.08);
 w,dw=model:getParameters()
 
 if paths.filep(opt.load_checkpoint_path) then
@@ -277,7 +280,7 @@ end
 ------------------------------------------------------------------------
 function JdJ(x)
    --clear gradients--
-   dw:zero()
+   dw:zero();
    --grab a batch--
    local fv_sorted_q,fv_im,labels,train_bs=trainset:next_batch_train(batch_size)
 
