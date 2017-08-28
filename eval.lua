@@ -26,7 +26,7 @@ cmd:text()
 cmd:text('Options')
 -- Data input settings
 cmd:option('-split', 1, '1: train on Train and test on Val, 2: train on Tr+V and test on Te, 3: train on Tr+V and test on Te-dev')
-cmd:option('-input_img_h5','data_train-val_test-dev_2k/data_res.h5','path to the h5file containing the image feature')
+cmd:option('-input_img_h5','data/feature/data_real_res.h5','path to the h5file containing the image feature')
 cmd:option('-model_path', 'model/mrn2k.t7', 'path to a model checkpoint to initialize model weights from. Empty = don\'t')
 cmd:option('-out_path', 'result/', 'path to save output json file')
 cmd:option('-out_prob', false, 'save prediction probability matrix as `model_name.t7`')

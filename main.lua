@@ -35,7 +35,8 @@ cmd:option('-mhdf5_size', 10000)
 
 -- Model parameter settings
 cmd:option('-batch_size',100,'batch_size for each iterations')
-cmd:option('-rnn_model', 'GRU', 'question embedding model')
+--cmd:option('-rnn_model', 'GRU', 'question embedding model')
+cmd:option('-question_max_length', 26, 'question max length')
 cmd:option('-input_encoding_size', 620, 'the encoding size of each token in the vocabulary')
 cmd:option('-rnn_size',2400,'size of the rnn in number of hidden nodes in each layer')
 cmd:option('-common_embedding_size', 1200, 'size of the common embedding vector')
@@ -71,7 +72,7 @@ cmd:option('-out_path', 'result', 'path to save output json file')
 cmd:option('-type', 'val2014', 'train2014|val2014|test-dev2017|test2017')
 
 opt = cmd:parse(arg)
-opt.iterPerEpoch = 240000 / opt.batch_size
+opt.iterPerEpoch = opt.max_iters / opt.batch_size
 print(opt)
 
 torch.manualSeed(opt.seed)
@@ -101,7 +102,8 @@ local noutput=opt.num_output
 local dropout=opt.dropout
 local glimpse=opt.glimpse
 local decay_factor = 0.99997592083  -- math.exp(math.log(0.1)/opt.learning_rate_decay_every/opt.iterPerEpoch)
-local question_max_length=26
+local question_max_length=opt.question_max_length
+local envname = string.format('VQAv2_%s_ep',os.date('%Y%m%d_T%H%M%S'))
 paths.mkdir(model_path)
 
 ------------------------------------------------------------------------
@@ -148,6 +150,12 @@ testset['ques_id'] = h5f:read('/question_id_test'):all()
 testset['lengths_q'] = h5f:read('/ques_length_test'):all()
 testset['img_list'] = h5f:read('/img_pos_test'):all()
 h5f:close()
+-- START trim question to be of length question_max_length
+trainset['question'] = trainset['question'][{{},{1,question_max_length}}]
+testset['question'] = testset['question'][{{},{1,question_max_length}}]
+trainset['lengths_q']:clamp(0,question_max_length);
+testset['lengths_q']:clamp(0,question_max_length);
+-- END trim question to be of length question_max_length
 trainset['question'] = right_align(trainset['question'],trainset['lengths_q'])
 testset['question'] = right_align(testset['question'],testset['lengths_q'])
 trainset.N = trainset['question']:size(1)
@@ -166,31 +174,29 @@ collectgarbage()
 ------------------------------------------------------------------------
 print('Building the model...')
 
-if opt.rnn_model == 'GRU' then
-   -- skip-thought vectors
-   lookup = torch.load(paths.concat(input_path, 'skipthoughts.t7'))
-   assert(lookup.weight:size(1)==vocabulary_size_q+1)  -- +1 for zero
-   assert(lookup.weight:size(2)==embedding_size_q)
-   -- Bayesian GRUs have right dropouts
-   rnn_model = nn.GRU(embedding_size_q, rnn_size_q, false, .25, true)
-   rnn_model:trimZero(1)
-   --encoder: RNN body
-   encoder_net_q=nn.Sequential()
-               :add(nn.Sequencer(rnn_model))
-               :add(nn.SelectTable(question_max_length))
-end
+-- word-embedding
+local lookup = torch.load(paths.concat(input_path, 'skipthoughts.t7'))
+assert(lookup.weight:size(1)==vocabulary_size_q+1)  -- +1 for zero
+assert(lookup.weight:size(2)==embedding_size_q)
+local embedding_net_q=nn.Sequential()
+   :add(lookup)
+   :add(nn.SplitTable(2))
 
+-- GRU encoder
+local rnn_model = nn.GRU(embedding_size_q, rnn_size_q, false, .25, true)
+rnn_model:trimZero(1)
+local encoder_net_q=nn.Sequential()
+   :add(nn.Sequencer(rnn_model))
+   :add(nn.SelectTable(question_max_length))
 collectgarbage()
---embedding: word-embedding
-embedding_net_q=nn.Sequential()
-               :add(lookup)
-               :add(nn.SplitTable(2))
 
+-- multimodal net
 require('netdef.'..opt.model_name)
-multimodal_net=netdef[opt.model_name](rnn_size_q,nhimage,common_embedding_size,dropout,num_layers,noutput,batch_size,glimpse)
-print('Multimodal Architecture:')
+local multimodal_net=netdef[opt.model_name](rnn_size_q,nhimage,common_embedding_size,dropout,num_layers,noutput,batch_size,glimpse)
+print('===[Multimodal Architecture]===')
 print(multimodal_net)
 
+-- overall model
 local model = nn.Sequential()
    :add(nn.ParallelTable()
       :add(nn.Sequential()
@@ -198,7 +204,7 @@ local model = nn.Sequential()
          :add(encoder_net_q))
       :add(nn.Identity()))
    :add(multimodal_net)
-print('Model Architecture:')
+print('===[Model Architecture]===')
 print(model)
 
 --criterion
@@ -220,6 +226,7 @@ if paths.filep(opt.load_checkpoint_path) then
    w:copy(model_param)
 end
 
+collectgarbage()
 -- optimization parameter
 local optimize={}
 optimize.maxIter=opt.max_iters
@@ -394,7 +401,7 @@ local trainlosshist = torch.DoubleTensor(opt.max_iters):fill(0)
 local trainacchist  = torch.DoubleTensor(opt.max_iters):fill(0)
 local testlosshist  = torch.DoubleTensor(max_epochs):fill(0)
 local testacchist   = torch.DoubleTensor(max_epochs):fill(0)
-local plot = visdom{server = 'http://localhost', port = 8097, env = 'VQA'}
+local plot = visdom{server = 'http://localhost', port = 8097, env = envname}
 local timer = torch.Timer()
 optimize.learningRate=optimize.learningRate*decay_factor^opt.previous_iters
 optimize.learningRate=optimize.learningRate*2^math.min(2, math.floor(opt.previous_iters/opt.kick_interval))

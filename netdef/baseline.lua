@@ -11,7 +11,7 @@ function netdef.baseline(rnn_size_q,nhimage,common_embedding_size,joint_dropout,
    local multimodal_net=nn.Sequential()
    local glimpse=glimpse or 2
    assert(num_layers==1, 'do not support stacked structure')
-   print('baseline: No Shortcut')
+   print('baseline')
    
    multimodal_net:add(nn.ParallelTable()
       :add(nn.Sequential()
