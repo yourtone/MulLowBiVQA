@@ -90,11 +90,14 @@ end
 ------------------------------------------------------------------------
 -- Setting the parameters
 ------------------------------------------------------------------------
+opt.label = string.format('%s_%s', opt.label, os.date('%Y%m%dT%H%M%S'))
 local model_name = opt.model_name..opt.label..'_L'..opt.num_layers
 local num_layers = opt.num_layers
 local model_path = opt.checkpoint_path
 local batch_size = opt.batch_size
 local nhimage = 2048
+local imw = 14
+local imh = 14
 local embedding_size_q=opt.input_encoding_size
 local rnn_size_q=opt.rnn_size
 local common_embedding_size=opt.common_embedding_size
@@ -103,7 +106,7 @@ local dropout=opt.dropout
 local glimpse=opt.glimpse
 local decay_factor = 0.99997592083  -- math.exp(math.log(0.1)/opt.learning_rate_decay_every/opt.iterPerEpoch)
 local question_max_length=opt.question_max_length
-local envname = string.format('VQAv2_%s_ep',os.date('%Y%m%d_T%H%M%S'))
+local envname = string.format('VQAv2%s_ep',opt.label)
 paths.mkdir(model_path)
 
 ------------------------------------------------------------------------
@@ -165,7 +168,7 @@ testset.N = testset['question']:size(1)
 
 print('DataLoader loading img file: ', opt.input_img_h5)
 local h5f = hdf5.open(opt.input_img_h5, 'r')
-local h5_cache = mhdf5(h5f, {2048,14,14}, opt.mhdf5_size)  -- consumes 48Gb memory
+local h5_cache = mhdf5(h5f, {nhimage,imw,imh}, opt.mhdf5_size)  -- consumes 48Gb memory
 
 collectgarbage()
 
@@ -202,7 +205,7 @@ local model = nn.Sequential()
       :add(nn.Sequential()
          :add(embedding_net_q)
          :add(encoder_net_q))
-      :add(nn.Identity()))
+      :add(nn.SpatialAveragePooling(2,2,2,2)))
    :add(multimodal_net)
 print('===[Model Architecture]===')
 print(model)
@@ -245,7 +248,7 @@ function trainset:next_batch_train(batch_size)
    local train_bs=e-s+1
    local qinds=torch.LongTensor(train_bs):fill(0)
    local iminds=torch.LongTensor(train_bs):fill(0)
-   local fv_im=torch.Tensor(train_bs,2048,14,14)
+   local fv_im=torch.Tensor(train_bs,nhimage,imw,imh)
    for i=1,train_bs do
       qinds[i]=s+i-1
       iminds[i]=trainset['img_list'][qinds[i]]
@@ -266,7 +269,7 @@ function testset:next_batch_test(s,e)
    local test_bs=e-s+1
    local qinds=torch.LongTensor(test_bs):fill(0)
    local iminds=torch.LongTensor(test_bs):fill(0)
-   local fv_im=torch.Tensor(test_bs,2048,14,14)
+   local fv_im=torch.Tensor(test_bs,nhimage,imw,imh)
    for i=1,test_bs do
       qinds[i]=s+i-1
       iminds[i]=testset['img_list'][qinds[i]]
@@ -290,21 +293,10 @@ function JdJ(x)
    dw:zero();
    --grab a batch--
    local fv_sorted_q,fv_im,labels,train_bs=trainset:next_batch_train(batch_size)
-
-   if train_bs ~= batch_size then
-      netdef[opt.model_name..'_updateBatchSize'](multimodal_net,nhimage,common_embedding_size,
-         num_layers,train_bs,glimpse)
-      model:cuda()
-   end
    local scores = model:forward({fv_sorted_q, fv_im})
    local f=criterion:forward(scores,labels)
    local dscores=criterion:backward(scores,labels)
-   model:backward(fv_sorted_q, dscores)
-   if train_bs ~= batch_size then
-      netdef[opt.model_name..'_updateBatchSize'](multimodal_net,nhimage,common_embedding_size,
-         num_layers,batch_size,glimpse)
-      model:cuda()
-   end
+   model:backward({fv_sorted_q, fv_im}, dscores)
    -- finish 1 epoch
    if trainset.s>trainset.N then
       trainset.ep = trainset.ep + 1
@@ -333,18 +325,7 @@ end
 function forward(s,e)
    --grab a batch--
    local fv_sorted_q,fv_im,qids,test_bs=testset:next_batch_test(s,e)
-
-   if test_bs ~= batch_size then
-      netdef[opt.model_name..'_updateBatchSize'](multimodal_net,nhimage,common_embedding_size,
-         num_layers,test_bs,glimpse)
-      model:cuda()
-   end
    local scores = model:forward({fv_sorted_q, fv_im})
-   if test_bs ~= batch_size then
-      netdef[opt.model_name..'_updateBatchSize'](multimodal_net,nhimage,common_embedding_size,
-         num_layers,batch_size,glimpse)
-      model:cuda()
-   end
    return scores:double(),qids
 end
 
@@ -406,10 +387,6 @@ local timer = torch.Timer()
 optimize.learningRate=optimize.learningRate*decay_factor^opt.previous_iters
 optimize.learningRate=optimize.learningRate*2^math.min(2, math.floor(opt.previous_iters/opt.kick_interval))
 for iter = opt.previous_iters + 1, opt.max_iters do
-   if iter%opt.save_checkpoint_every == 0 then
-      paths.mkdir(model_path..'/save')
-      torch.save(string.format('%s/save/%s_iter%d.t7',model_path,model_name,iter),w)
-   end
    -- double learning rate at two iteration points
    if iter==opt.kick_interval or iter==opt.kick_interval*2 then
       optimize.learningRate=optimize.learningRate*2
@@ -434,9 +411,13 @@ for iter = opt.previous_iters + 1, opt.max_iters do
    end
    if trainset.ep > epoch then -- finished one epoch
       print(string.format('====== training time per epoch: %dm%ds',timer:time().real/60,timer:time().real%60))
+      if opt.save_checkpoint_every > 0 then
+         paths.mkdir(model_path..'/save')
+         torch.save(string.format('%s/save/%s_ep%d.t7',model_path,model_name,epoch),w)
+      end
       -- do evaluation
       timer:reset();
-      local acc = test(string.format('_iter%d',iter))
+      local acc = test(string.format('_ep%d',epoch))
       print(string.format('====== testing time: %dm%ds',timer:time().real/60,timer:time().real%60))
       timer:reset();
       testacchist[epoch] = acc

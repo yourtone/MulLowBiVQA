@@ -1,13 +1,11 @@
 ------------------------------------------------------------------------------
---  Hadamard Product for Low-rank Bilinear Pooling
---  Jin-Hwa Kim, Kyoung-Woon On, Jeonghee Kim, Jung-Woo Ha, Byoung-Tak Zhang 
---  https://arxiv.org/abs/1610.04325
+--  ref [2016 arXiv] VQA: Visual Question Answering
 -----------------------------------------------------------------------------
 
---Multimodal Low-rank Bilinear Attention Networks (MLB)
+--attention of MLB
 --Use 1x1 convolution for dimension reduction
 netdef = {}
-function netdef.MLB(rnn_size_q,nhimage,common_embedding_size,joint_dropout,num_layers,noutput,batch_size,glimpse)
+function netdef.attention(rnn_size_q,nhimage,common_embedding_size,joint_dropout,num_layers,noutput,batch_size,glimpse)
    local p = joint_dropout  -- dropout ratio
    local activation = 'Tanh'
    local multimodal_net=nn.Sequential()
@@ -15,12 +13,8 @@ function netdef.MLB(rnn_size_q,nhimage,common_embedding_size,joint_dropout,num_l
    local iw=14/2
    local ih=14/2
    assert(num_layers==1, 'do not support stacked structure')
-   print('MLB: No Shortcut')
-
-   local reshaper = nn.Sequential()
-      :add(nn.Transpose({1,2},{2,3}):setNumInputDims(3))
-      :add(nn.Reshape(iw*ih,nhimage,true))
-
+   print('attention')
+   
    local attention=nn.Sequential()  -- attention networks
       :add(nn.ParallelTable()
          :add(nn.Sequential()
@@ -68,26 +62,21 @@ function netdef.MLB(rnn_size_q,nhimage,common_embedding_size,joint_dropout,num_l
       :add(nn.JoinTable(2))
 
    multimodal_net:add(nn.ConcatTable()
-      :add(nn.SelectTable(1))  -- q
+      :add(nn.SelectTable(1)) -- q
       :add(nn.Sequential()
-         :add(nn.SelectTable(2))
-         :add(reshaper))  -- v1
-      :add(attention)  -- second-attention
+         :add(nn.SelectTable(2)) -- v
+         :add(nn.Transpose({1,2},{2,3}):setNumInputDims(3))
+         :add(nn.Reshape(iw*ih,nhimage,true)))
+      :add(attention)
    ):add(nn.FlattenTable()
    ):add(nn.ConcatTable()
       :add(nn.Sequential()
-         :add(nn.SelectTable(1))
+         :add(nn.SelectTable(1)) -- q
          :add(nn.Dropout(p))
          :add(nn.Linear(rnn_size_q, common_embedding_size*glimpse))
          :add(nn[activation]()))
-      :add(visual_embedding)  -- if L > 1, do clone
-      :add(nn.SelectTable(2))
-   ):add(nn.ConcatTable()
-      :add(nn.Sequential()
-         :add(nn.NarrowTable(1,2))
-         :add(nn.CMulTable()))
-      :add(nn.SelectTable(3))
-   ):add(nn.SelectTable(1)
+      :add(visual_embedding)
+   ):add(nn.CMulTable()
    ):add(nn.Dropout(p)
    ):add(nn.Linear(common_embedding_size*glimpse,noutput))
    return multimodal_net
