@@ -69,7 +69,7 @@ cmd:option('-seed', 1231, 'random number generator seed to use')
 
 -- for evaluation
 cmd:option('-out_path', 'result', 'path to save output json file')
-cmd:option('-type', 'val2014', 'train2014|val2014|test-dev2017|test2017')
+--cmd:option('-type', 'val2014', 'train2014|val2014|test-dev2017|test2017')
 
 opt = cmd:parse(arg)
 opt.iterPerEpoch = opt.max_iters / opt.batch_size
@@ -96,8 +96,8 @@ local num_layers = opt.num_layers
 local model_path = opt.checkpoint_path
 local batch_size = opt.batch_size
 local nhimage = 2048
-local imw = 14
-local imh = 14
+local iw = 14
+local ih = 14
 local embedding_size_q=opt.input_encoding_size
 local rnn_size_q=opt.rnn_size
 local common_embedding_size=opt.common_embedding_size
@@ -168,7 +168,7 @@ testset.N = testset['question']:size(1)
 
 print('DataLoader loading img file: ', opt.input_img_h5)
 local h5f = hdf5.open(opt.input_img_h5, 'r')
-local h5_cache = mhdf5(h5f, {nhimage,imw,imh}, opt.mhdf5_size)  -- consumes 48Gb memory
+local h5_cache = mhdf5(h5f, {nhimage,iw,ih}, opt.mhdf5_size)  -- consumes 48Gb memory
 
 collectgarbage()
 
@@ -248,7 +248,7 @@ function trainset:next_batch_train(batch_size)
    local train_bs=e-s+1
    local qinds=torch.LongTensor(train_bs):fill(0)
    local iminds=torch.LongTensor(train_bs):fill(0)
-   local fv_im=torch.Tensor(train_bs,nhimage,imw,imh)
+   local fv_im=torch.Tensor(train_bs,nhimage,iw,ih)
    for i=1,train_bs do
       qinds[i]=s+i-1
       iminds[i]=trainset['img_list'][qinds[i]]
@@ -269,7 +269,7 @@ function testset:next_batch_test(s,e)
    local test_bs=e-s+1
    local qinds=torch.LongTensor(test_bs):fill(0)
    local iminds=torch.LongTensor(test_bs):fill(0)
-   local fv_im=torch.Tensor(test_bs,nhimage,imw,imh)
+   local fv_im=torch.Tensor(test_bs,nhimage,iw,ih)
    for i=1,test_bs do
       qinds[i]=s+i-1
       iminds[i]=testset['img_list'][qinds[i]]

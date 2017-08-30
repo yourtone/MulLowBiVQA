@@ -24,11 +24,9 @@ function netdef.baseline(rnn_size_q,nhimage,common_embedding_size,joint_dropout,
          :add(nn.SpatialAveragePooling(iw,ih))
          :add(nn.Dropout(p))
          :add(nn.SpatialConvolution(nhimage, common_embedding_size*glimpse, 1,1))
-         :add(nn[activation]()))
-   ):add(nn.Sequential()
-      :add(nn.CMulTable())
-      :add(nn.Dropout(p))
-      :add(nn.Linear(common_embedding_size*glimpse,noutput))
-   )
+         :add(nn[activation]())))
+   :add(nn.CMulTable())
+   :add(nn.Dropout(p))
+   :add(nn.Linear(common_embedding_size*glimpse,noutput))
    return multimodal_net
 end
