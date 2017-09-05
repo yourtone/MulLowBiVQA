@@ -225,9 +225,9 @@ for i=1,N,batch_size do
 end
 h5f:close()
 
-if opt.out_prob then torch.save(model_name..'.t7', scores); return end
-
-tmp,pred=torch.max(scores,2);
+if opt.out_prob then
+   torch.save(string.format('%s/%s.t7',opt.out_path,model_name..opt.model_append), scores);
+end
 
 ------------------------------------------------------------------------
 -- Write to json file
@@ -238,6 +238,7 @@ function writeAll(file,data)
    f:close() 
 end
 
+tmp,pred=torch.max(scores,2);
 response={};
 for i=1,N do
    table.insert(response,{question_id=qids[i],answer=json_file['ix_to_ans'][tostring(pred[{i,1}])]})

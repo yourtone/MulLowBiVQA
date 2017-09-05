@@ -196,19 +196,19 @@ collectgarbage()
 -- multimodal net
 require('netdef.'..opt.model_name)
 local multimodal_net=netdef[opt.model_name](rnn_size_q,nhimage,common_embedding_size,dropout,num_layers,noutput,batch_size,glimpse)
-print('===[Multimodal Architecture]===')
-print(multimodal_net)
 
--- overall model
-local model = nn.Sequential()
+-- encoding net
+local encoding_net = nn.Sequential()
    :add(nn.ParallelTable()
       :add(nn.Sequential()
          :add(embedding_net_q)
          :add(encoder_net_q))
       :add(nn.SpatialAveragePooling(2,2,2,2)))
+
+-- overall model
+local model = nn.Sequential()
+   :add(encoding_net)
    :add(multimodal_net)
-print('===[Model Architecture]===')
-print(model)
 
 --criterion
 criterion=nn.CrossEntropyCriterion()
@@ -219,15 +219,14 @@ if opt.gpuid >= 0 then
    criterion = criterion:cuda()
 end
 
-local multimodal_w=multimodal_net:getParameters()
-multimodal_w:uniform(-0.08, 0.08);
-w,dw=model:getParameters()
+en_w,en_dw=encoding_net:getParameters()
+mm_w,mm_dw=multimodal_net:getParameters()
+mm_w:uniform(-0.08, 0.08);
 
-if paths.filep(opt.load_checkpoint_path) then
-   print('loading checkpoint model...')
-   model_param=torch.load(opt.load_checkpoint_path)
-   w:copy(model_param)
-end
+assert(paths.filep(opt.load_checkpoint_path))
+print('loading checkpoint encoding net model...')
+model_param=torch.load(opt.load_checkpoint_path)
+en_w:copy(model_param[{{1,en_w:size(1)}}])
 
 collectgarbage()
 -- optimization parameter
@@ -235,7 +234,7 @@ local optimize={}
 optimize.maxIter=opt.max_iters
 optimize.learningRate=opt.learning_rate
 optimize.update_grad_per_n_batches=1
-optimize.winit=w
+optimize.winit=mm_w
 print('nParams =',optimize.winit:size(1))
 print('decay_factor =', decay_factor)
 
@@ -290,13 +289,14 @@ end
 ------------------------------------------------------------------------
 function JdJ(x)
    --clear gradients--
-   dw:zero();
+   mm_dw:zero();
    --grab a batch--
    local fv_sorted_q,fv_im,labels,train_bs=trainset:next_batch_train(batch_size)
-   local scores = model:forward({fv_sorted_q, fv_im})
+   local encodingFeas = encoding_net:forward({fv_sorted_q, fv_im})
+   local scores = multimodal_net:forward(encodingFeas)
    local f=criterion:forward(scores,labels)
    local dscores=criterion:backward(scores,labels)
-   model:backward({fv_sorted_q, fv_im}, dscores)
+   multimodal_net:backward(encodingFeas, dscores)
    -- finish 1 epoch
    if trainset.s>trainset.N then
       trainset.ep = trainset.ep + 1
@@ -312,7 +312,7 @@ function JdJ(x)
       assert(trainset.N == trainset['question']:size(1))
    end
 
-   gradients=dw
+   gradients=mm_dw
    if opt.clipping > 0 then gradients:clamp(-opt.clipping,opt.clipping) end
    if running_avg_train == nil then running_avg_train = f end
    running_avg_train=running_avg_train*0.95+f*0.05
@@ -353,14 +353,14 @@ function test(model_append)
       table.insert(response,{question_id=qids[i],answer=json_file['ix_to_ans'][tostring(pred[{i,1}])]})
    end
    local oe_txt = cjson.encode(response)
-   local fname = string.format('%s/vqa_OpenEnded_mscoco_%s_%s_results.json',
+   local fname = string.format('%s/vqa_OpenEnded_mscoco_%s_%s_results.json', 
       opt.out_path,opt.type,model_name..model_append)
    paths.mkdir(opt.out_path)
    writeAll(fname,oe_txt)
    collectgarbage()
-   os.execute(string.format('python vqaEval_v2.py --resultDir %s --methodInfo %s > /dev/null',
+   os.execute(string.format('python vqaEval_v2.py --resultDir %s --methodInfo %s > /dev/null', 
       opt.out_path,model_name..model_append))
-   local f = io.open(string.format('%s/vqa_OpenEnded_mscoco_%s_%s_accuracy.json',
+   local f = io.open(string.format('%s/vqa_OpenEnded_mscoco_%s_%s_accuracy.json', 
       opt.out_path,opt.type,model_name..model_append), 'r')
    local text = f:read()
    f:close()
@@ -413,7 +413,7 @@ for iter = opt.previous_iters + 1, opt.max_iters do
       print(string.format('====== training time per epoch: %dm%ds',timer:time().real/60,timer:time().real%60))
       if opt.save_checkpoint_every > 0 then
          paths.mkdir(model_path..'/save')
-         torch.save(string.format('%s/save/%s_ep%d.t7',model_path,model_name,epoch),w)
+         torch.save(string.format('%s/save/%s_ep%d.t7',model_path,model_name,epoch),mm_w)
       end
       -- do evaluation
       timer:reset();
@@ -440,5 +440,5 @@ for iter = opt.previous_iters + 1, opt.max_iters do
 end
 
 -- Saving the final model
-torch.save(string.format('%s/%s.t7',model_path,model_name),w)
+torch.save(string.format('%s/%s.t7',model_path,model_name),mm_w)
 h5f:close()

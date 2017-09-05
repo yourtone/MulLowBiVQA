@@ -96,8 +96,8 @@ local num_layers = opt.num_layers
 local model_path = opt.checkpoint_path
 local batch_size = opt.batch_size
 local nhimage = 2048
-local iw = 14
-local ih = 14
+local iw = 7
+local ih = 7
 local embedding_size_q=opt.input_encoding_size
 local rnn_size_q=opt.rnn_size
 local common_embedding_size=opt.common_embedding_size
@@ -120,6 +120,7 @@ end
 input_path = string.format('%s_%dk', input_path_prefix, (opt.num_output/1000))
 input_ques_h5 = paths.concat(input_path, 'data_prepro.h5')
 input_json = paths.concat(input_path, 'data_prepro.json')
+input_queFea_h5 = paths.concat(input_path, 'data_prepro_QFea.h5')
 ------ path setting end ------
 
 print('DataLoader loading json file: ', input_json)
@@ -166,6 +167,12 @@ trainset.s = 1 -- start index
 trainset.ep = 1 -- start epoch
 testset.N = testset['question']:size(1)
 
+print('DataLoader loading qfea file: ', input_queFea_h5)
+local h5f = hdf5.open(input_queFea_h5, 'r')
+trainset['question'] = h5f:read('/train_question'):all()
+testset['question'] = h5f:read('/test_question'):all()
+h5f:close()
+
 print('DataLoader loading img file: ', opt.input_img_h5)
 local h5f = hdf5.open(opt.input_img_h5, 'r')
 local h5_cache = mhdf5(h5f, {nhimage,iw,ih}, opt.mhdf5_size)  -- consumes 48Gb memory
@@ -196,19 +203,10 @@ collectgarbage()
 -- multimodal net
 require('netdef.'..opt.model_name)
 local multimodal_net=netdef[opt.model_name](rnn_size_q,nhimage,common_embedding_size,dropout,num_layers,noutput,batch_size,glimpse)
-print('===[Multimodal Architecture]===')
-print(multimodal_net)
 
 -- overall model
 local model = nn.Sequential()
-   :add(nn.ParallelTable()
-      :add(nn.Sequential()
-         :add(embedding_net_q)
-         :add(encoder_net_q))
-      :add(nn.SpatialAveragePooling(2,2,2,2)))
    :add(multimodal_net)
-print('===[Model Architecture]===')
-print(model)
 
 --criterion
 criterion=nn.CrossEntropyCriterion()
@@ -219,15 +217,8 @@ if opt.gpuid >= 0 then
    criterion = criterion:cuda()
 end
 
-local multimodal_w=multimodal_net:getParameters()
-multimodal_w:uniform(-0.08, 0.08);
 w,dw=model:getParameters()
-
-if paths.filep(opt.load_checkpoint_path) then
-   print('loading checkpoint model...')
-   model_param=torch.load(opt.load_checkpoint_path)
-   w:copy(model_param)
-end
+w:uniform(-0.08, 0.08);
 
 collectgarbage()
 -- optimization parameter
@@ -353,14 +344,14 @@ function test(model_append)
       table.insert(response,{question_id=qids[i],answer=json_file['ix_to_ans'][tostring(pred[{i,1}])]})
    end
    local oe_txt = cjson.encode(response)
-   local fname = string.format('%s/vqa_OpenEnded_mscoco_%s_%s_results.json',
+   local fname = string.format('%s/vqa_OpenEnded_mscoco_%s_%s_results.json', 
       opt.out_path,opt.type,model_name..model_append)
    paths.mkdir(opt.out_path)
    writeAll(fname,oe_txt)
    collectgarbage()
-   os.execute(string.format('python vqaEval_v2.py --resultDir %s --methodInfo %s > /dev/null',
+   os.execute(string.format('python vqaEval_v2.py --resultDir %s --methodInfo %s > /dev/null', 
       opt.out_path,model_name..model_append))
-   local f = io.open(string.format('%s/vqa_OpenEnded_mscoco_%s_%s_accuracy.json',
+   local f = io.open(string.format('%s/vqa_OpenEnded_mscoco_%s_%s_accuracy.json', 
       opt.out_path,opt.type,model_name..model_append), 'r')
    local text = f:read()
    f:close()

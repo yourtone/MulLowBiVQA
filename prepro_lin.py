@@ -1,7 +1,7 @@
 """
 Preoricess a raw json dataset into hdf5/json files.
 
-Caption: Use spaCy or NLTK or split function to get tokens. 
+Caption: Use spaCy or NLTK or split function to get tokens.
 Modified by Yuetan Lin (2016/08/06 16:35)
 """
 import copy
@@ -41,7 +41,7 @@ def prepro_question(imgs, params):
         if i < 10: print txt
         if i % 1000 == 0:
             sys.stdout.write("processing %d/%d (%.2f%% done)   \r" %  (i, len(imgs), i*100.0/len(imgs)) )
-            sys.stdout.flush()   
+            sys.stdout.flush()
     print ""
     return imgs
 
@@ -74,7 +74,7 @@ def build_vocab_question(imgs, params):
     # additional special UNK token we will use below to map infrequent words to
     print 'inserting the special UNK token'
     vocab.append('UNK')
-  
+
     for img in imgs:
         txt = img['processed_tokens']
         question = [w if counts.get(w,0) > count_thr else 'UNK' for w in txt]
@@ -98,9 +98,9 @@ def get_top_answers(imgs, params):
         counts[ans] = counts.get(ans, 0) + 1
 
     cw = sorted([(count,w) for w,count in counts.iteritems()], reverse=True)
-    print 'top answer and their counts:'    
+    print 'top answer and their counts:'
     print '\n'.join(map(str,cw[:20]))
-    
+
     vocab = []
     for i in range(params['num_ans']):
         vocab.append(cw[i][1])
@@ -122,7 +122,7 @@ def encode_question(imgs, params, wtoi):
         for k,w in enumerate(img['final_question']):
             if k < max_length:
                 label_arrays[i,k] = wtoi[w]
-    
+
     return label_arrays, label_length, question_id
 
 def encode_answer(imgs, atoi):
