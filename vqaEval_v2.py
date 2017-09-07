@@ -17,6 +17,8 @@ parser.add_argument('--dataSubType', default='val2014', help='val2014 / train201
 parser.add_argument('--methodInfo', default='MLB_L1', help='intermediate type')
 parser.add_argument('--resultDir', default='result', help='result json folder')
 parser.add_argument('--saveallfile', default=False, help='save all filetype files or not')
+parser.add_argument('--nolenassert', default=False, help='no length assert in vqa.loadRes')
+parser.add_argument('--inputqidlist', default=False, help='input question id list in vqaEval.evaluate')
 
 args = parser.parse_args()
 params = vars(args)
@@ -39,7 +41,10 @@ fileTypes   = ['results', 'accuracy', 'evalQA', 'evalQuesType', 'evalAnsType']
 
 # create vqa object and vqaRes object
 vqa = VQA(annFile, quesFile)
-vqaRes = vqa.loadRes(resFile, quesFile)
+if not params['nolenassert']:
+	vqaRes = vqa.loadRes(resFile, quesFile)
+else:
+	vqaRes = vqa.loadResNoAssert(resFile, quesFile)
 
 # create vqaEval object by taking vqa and vqaRes
 vqaEval = VQAEval(vqa, vqaRes, n=2)   #n is precision of accuracy (number of places after decimal), default is 2
@@ -49,7 +54,12 @@ vqaEval = VQAEval(vqa, vqaRes, n=2)   #n is precision of accuracy (number of pla
 If you have a list of question ids on which you would like to evaluate your results, pass it as a list to below function
 By default it uses all the question ids in annotation file
 """
-vqaEval.evaluate()
+if not params['inputqidlist']:
+	vqaEval.evaluate()
+else:
+	res = json.load(open(resFile,'r'))
+	qidlist = [item['question_id'] for item in res]
+	vqaEval.evaluate(qidlist)
 
 # print accuracies
 """

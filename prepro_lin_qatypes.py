@@ -26,11 +26,11 @@ def get_qa_types(annos):
     for i in range(len(cnt_atype)):
         atypes.append(cnt_atype[i][1])
 
-    qtoi = {w:i+1 for i,w in enumerate(qtypes)}
-    itoq = {i+1:w for i,w in enumerate(qtypes)}
+    qtoi = {w:i+1 for i,w in enumerate(qtypes)} # [qtypename -> qtypeid]
+    itoq = {i+1:w for i,w in enumerate(qtypes)} # [qtypeid -> qtypename]
 
-    atoi = {w:i+1 for i,w in enumerate(atypes)}
-    itoa = {i+1:w for i,w in enumerate(atypes)}
+    atoi = {w:i+1 for i,w in enumerate(atypes)} # [atypename -> atypeid]
+    itoa = {i+1:w for i,w in enumerate(atypes)} # [atypeid -> atypename]
 
     return qtoi, itoq, atoi, itoa
 
@@ -69,8 +69,8 @@ def main():
         #train.append({'ques_id': question_id, \
         #    'ques_type': qtoi[question_type], 'ans_type': atoi[answer_type], \
         #    'question_type': question_type, 'ans_type': answer_type})
-        qtype_train[question_id] = qtoi[question_type]
-        atype_train[question_id] = atoi[answer_type]
+        qtype_train[question_id] = qtoi[question_type] # [qid -> qtypeid]
+        atype_train[question_id] = atoi[answer_type] # [qid -> atypeid]
 
     test_anno = json.load(open(fname_test_anno,'r'))
     #test = []
@@ -83,8 +83,8 @@ def main():
         #test.append({'ques_id': question_id, \
         #    'ques_type': qtoi[question_type], 'ans_type': atoi[answer_type], \
         #    'question_type': question_type, 'ans_type': answer_type})
-        qtype_test[question_id] = qtoi[question_type]
-        atype_test[question_id] = atoi[answer_type]
+        qtype_test[question_id] = qtoi[question_type] # [qid -> qtypeid]
+        atype_test[question_id] = atoi[answer_type] # [qid -> atypeid]
 
     json.dump(qtype_train, open(fname_qtype_train, 'w'))
     json.dump(qtype_test, open(fname_qtype_test, 'w'))
