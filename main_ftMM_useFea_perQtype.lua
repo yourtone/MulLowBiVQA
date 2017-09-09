@@ -36,6 +36,8 @@ cmd:option('-mhdf5_size', 10000)
 -- Model parameter settings
 cmd:option('-batch_size',100,'batch_size for each iterations')
 cmd:option('-qtype', 1, 'question embedding model')
+cmd:option('-usenegsamples', false, 'question embedding model')
+cmd:option('-samenegsamples', false, 'question embedding model')
 cmd:option('-question_max_length', 26, 'question max length')
 cmd:option('-input_encoding_size', 620, 'the encoding size of each token in the vocabulary')
 cmd:option('-rnn_size',2400,'size of the rnn in number of hidden nodes in each layer')
@@ -98,6 +100,8 @@ local nhimage = 2048
 local iw = 7
 local ih = 7
 local qtype = opt.qtype
+local useNegSam = opt.usenegsamples
+local sameNegSam = opt.samenegsamples
 local embedding_size_q=opt.input_encoding_size
 local rnn_size_q=opt.rnn_size
 local common_embedding_size=opt.common_embedding_size
@@ -107,6 +111,16 @@ local glimpse=opt.glimpse
 local decay_factor = 0.99997592083  -- math.exp(math.log(0.1)/opt.learning_rate_decay_every/opt.iterPerEpoch)
 local question_max_length=opt.question_max_length
 local envname = string.format('VQAv2%s_ep',opt.label)
+if useNegSam then
+   if sameNegSam then
+      envname = string.format('%s_ftFea%sr7x7NegSameperQT%d',envname,opt.model_name,qtype)
+   else
+      envname = string.format('%s_ftFea%sr7x7NegPropperQT%d',envname,opt.model_name,qtype)
+   end
+else
+   envname = string.format('%s_ftFea%sr7x7perQT%d',envname,opt.model_name,qtype)
+end
+print(envname)
 paths.mkdir(model_path)
 
 ------------------------------------------------------------------------
@@ -197,7 +211,24 @@ collectgarbage()
 
 -- Select by qtype
 print('Select by qtype...')
-local qinds=torch.eq(trainset['ques_type'],qtype):nonzero():view(-1)
+local qinds=torch.eq(trainset['ques_type'],qtype)
+local posSampleNum = torch.sum(qinds)
+local negSampleNum
+if useNegSam then
+   if sameNegSam then
+      negSampleNum = posSampleNum
+   else
+      negSampleNum = torch.ceil(posSampleNum/#QT[tostring(qtype)]['uniqA_train'])
+   end
+   negSampleNum = torch.max(torch.Tensor{negSampleNum,1})
+else
+   negSampleNum = 0
+end
+-- Choose some negtive training samples
+for i=1,negSampleNum do
+   qinds[math.random(qinds:size(1))]=1
+end
+qinds=qinds:nonzero():view(-1)
 trainset['question'] = trainset['question']:index(1,qinds)
 trainset['ques_id'] = trainset['ques_id']:index(1,qinds)
 trainset['lengths_q'] = trainset['lengths_q']:index(1,qinds)
@@ -213,16 +244,26 @@ testset.N = testset['question']:size(1)
 opt.iterPerEpoch = trainset.N / opt.batch_size
 -- map from original index to current index
 ansMaptoOri = QT[tostring(qtype)]['uniqA_train']
-ansMapfromOri = torch.zeros(opt.num_output)
+if useNegSam then table.insert(ansMaptoOri,opt.num_output+1) end
+noutput = #ansMaptoOri
+if useNegSam then
+   ansMapfromOri = torch.zeros(opt.num_output+1):fill(noutput)
+else
+   ansMapfromOri = torch.zeros(opt.num_output)
+end
 for i,orii in pairs(ansMaptoOri) do
    ansMapfromOri[orii] = i
 end
-noutput = #ansMaptoOri
 for i=1,trainset.N do
    trainset['answers'][i] = ansMapfromOri[trainset['answers'][i]]
 end
-print(string.format('QType (%d): %s, #QA_train: %d, #QA_test: %d, #uniqAns: %d', 
-   qtype, QT[tostring(qtype)]['name'], trainset.N, testset.N, noutput))
+if useNegSam then
+   print(string.format('QType (%d): %s, #QA_train: %d (Pos/Neg:%d/%d), #QA_test: %d, #(uniqAns+dump): %d', 
+      qtype, QT[tostring(qtype)]['name'], trainset.N, posSampleNum, negSampleNum, testset.N, noutput))
+else
+   print(string.format('QType (%d): %s, #QA_train: %d (Pos/Neg:%d/%d), #QA_test: %d, #uniqAns: %d', 
+      qtype, QT[tostring(qtype)]['name'], trainset.N, posSampleNum, negSampleNum, testset.N, noutput))
+end
 ------------------------------------------------------------------------
 --Design Parameters and Network Definitions
 ------------------------------------------------------------------------
@@ -385,8 +426,12 @@ function test(model_append)
    tmp,pred=torch.max(scores,2)
    response={}
    for i=1,N do
+      local oriAnsIdx = ansMaptoOri[pred[{i,1}]]
+      if useNegSam and oriAnsIdx == opt.num_output+1 then
+         oriAnsIdx = math.random(opt.num_output)
+      end
       table.insert(response,{question_id=qids[i],
-         answer=json_file['ix_to_ans'][tostring(ansMaptoOri[pred[{i,1}]])]})
+         answer=json_file['ix_to_ans'][tostring(oriAnsIdx)]})
    end
    local oe_txt = cjson.encode(response)
    local fname = string.format('%s/vqa_OpenEnded_mscoco_%s_%s_results.json', 

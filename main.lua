@@ -96,8 +96,8 @@ local num_layers = opt.num_layers
 local model_path = opt.checkpoint_path
 local batch_size = opt.batch_size
 local nhimage = 2048
-local iw = 14
-local ih = 14
+local iw = 7
+local ih = 7
 local embedding_size_q=opt.input_encoding_size
 local rnn_size_q=opt.rnn_size
 local common_embedding_size=opt.common_embedding_size
@@ -205,7 +205,7 @@ local model = nn.Sequential()
       :add(nn.Sequential()
          :add(embedding_net_q)
          :add(encoder_net_q))
-      :add(nn.SpatialAveragePooling(2,2,2,2)))
+      :add(nn.Identity()))
    :add(multimodal_net)
 print('===[Model Architecture]===')
 print(model)
