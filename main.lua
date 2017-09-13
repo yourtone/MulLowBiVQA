@@ -43,6 +43,7 @@ cmd:option('-common_embedding_size', 1200, 'size of the common embedding vector'
 cmd:option('-num_output', 2000, 'number of output answers')
 cmd:option('-model_name', 'MLB', 'model name')
 cmd:option('-label','','model label')
+cmd:option('-envlabel','','envname label')
 cmd:option('-num_layers', 1, '# of layers of Multimodal Residual Networks')
 cmd:option('-dropout', .5, 'dropout probability for joint functions')
 cmd:option('-glimpse', 2, '# of glimpses')
@@ -106,7 +107,7 @@ local dropout=opt.dropout
 local glimpse=opt.glimpse
 local decay_factor = 0.99997592083  -- math.exp(math.log(0.1)/opt.learning_rate_decay_every/opt.iterPerEpoch)
 local question_max_length=opt.question_max_length
-local envname = string.format('VQAv2%s_ep',opt.label)
+local envname = string.format('VQAv2%s_ep%s',opt.label,opt.envlabel)
 paths.mkdir(model_path)
 
 ------------------------------------------------------------------------
