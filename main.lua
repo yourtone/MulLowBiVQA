@@ -109,6 +109,7 @@ local decay_factor = 0.99997592083  -- math.exp(math.log(0.1)/opt.learning_rate_
 local question_max_length=opt.question_max_length
 local envname = string.format('VQAv2%s_ep%s',opt.label,opt.envlabel)
 paths.mkdir(model_path)
+print(envname)
 
 ------------------------------------------------------------------------
 -- Loading Dataset
@@ -169,7 +170,12 @@ testset.N = testset['question']:size(1)
 
 print('DataLoader loading img file: ', opt.input_img_h5)
 local h5f = hdf5.open(opt.input_img_h5, 'r')
-local h5_cache = mhdf5(h5f, {nhimage,iw,ih}, opt.mhdf5_size)  -- consumes 48Gb memory
+local h5_cache
+if opt.model_name == 'baseline' then
+   h5_cache = mhdf5(h5f, {nhimage}, opt.mhdf5_size)
+else
+   h5_cache = mhdf5(h5f, {nhimage,iw,ih}, opt.mhdf5_size)  -- consumes 48Gb memory
+end
 
 collectgarbage()
 
@@ -197,8 +203,8 @@ collectgarbage()
 -- multimodal net
 require('netdef.'..opt.model_name)
 local multimodal_net=netdef[opt.model_name](rnn_size_q,nhimage,common_embedding_size,dropout,num_layers,noutput,batch_size,glimpse)
-print('===[Multimodal Architecture]===')
-print(multimodal_net)
+--print('===[Multimodal Architecture]===')
+--print(multimodal_net)
 
 -- overall model
 local model = nn.Sequential()
@@ -208,8 +214,8 @@ local model = nn.Sequential()
          :add(encoder_net_q))
       :add(nn.Identity()))
    :add(multimodal_net)
-print('===[Model Architecture]===')
-print(model)
+--print('===[Model Architecture]===')
+--print(model)
 
 --criterion
 criterion=nn.CrossEntropyCriterion()
@@ -249,7 +255,12 @@ function trainset:next_batch_train(batch_size)
    local train_bs=e-s+1
    local qinds=torch.LongTensor(train_bs):fill(0)
    local iminds=torch.LongTensor(train_bs):fill(0)
-   local fv_im=torch.Tensor(train_bs,nhimage,iw,ih)
+   local fv_im
+   if opt.model_name == 'baseline' then
+      fv_im=torch.Tensor(train_bs,nhimage)
+   else
+      fv_im=torch.Tensor(train_bs,nhimage,iw,ih)
+   end
    for i=1,train_bs do
       qinds[i]=s+i-1
       iminds[i]=trainset['img_list'][qinds[i]]
@@ -270,7 +281,12 @@ function testset:next_batch_test(s,e)
    local test_bs=e-s+1
    local qinds=torch.LongTensor(test_bs):fill(0)
    local iminds=torch.LongTensor(test_bs):fill(0)
-   local fv_im=torch.Tensor(test_bs,nhimage,iw,ih)
+   local fv_im
+   if opt.model_name == 'baseline' then
+      fv_im=torch.Tensor(test_bs,nhimage)
+   else
+      fv_im=torch.Tensor(test_bs,nhimage,iw,ih)
+   end
    for i=1,test_bs do
       qinds[i]=s+i-1
       iminds[i]=testset['img_list'][qinds[i]]
@@ -375,7 +391,6 @@ end
 -- Training
 ------------------------------------------------------------------------
 local state={}
---local max_epochs = math.floor(opt.max_iters/4000)
 local max_epochs = math.floor(opt.max_iters*batch_size/trainset.N)
 local epoch = trainset.ep
 local trainlosshandle, trainacchandle, testlosshandle, testacchandle

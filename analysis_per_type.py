@@ -32,13 +32,17 @@ def main(params):
     qavocab = json.load(open(fname_qavocab,'r'))
     itoq = qavocab['itoq'] # [qtypeid -> qtypename]
     N = len(itoq)
-    if params['qtid'] > 0:
+    analyseAll = params['qtid'] == 0 # analyse
+    if not analyseAll:
         N = 1
     #=== create Res_Qtype object ===#
     Res = {} # [1,65]
     for i in range(N):
         Res[i+1] = {}
-        Res[i+1]['name'] = itoq[str(i+1)]
+        if analyseAll:
+            Res[i+1]['name'] = itoq[str(i+1)]
+        else:
+            Res[i+1]['name'] = itoq[str(params['qtid'])]
         Res[i+1]['qid'] = []
         Res[i+1]['ans'] = []
         Res[i+1]['gt'] = []
@@ -62,7 +66,7 @@ def main(params):
         gt = test_vqa.qa[qid]['multiple_choice_answer']
         corr = ans == gt
         inTrA = gt in QT[str(qtid)]['uniqA_train']
-        if params['qtid'] > 0:
+        if not analyseAll:
             qtid = 1
         Res[qtid]['qid'].append(int(qid))
         Res[qtid]['ans'].append(ans)
@@ -70,39 +74,29 @@ def main(params):
         Res[qtid]['corr'].append(corr)
         Res[qtid]['inTrA'].append(inTrA)
 
-    if params['qtid'] == 0:
+    if analyseAll:
         out_file = '%s/acc_analysis_pertype.json'%qa_dir
         json.dump(Res, open(out_file,'w'))
         print 'wrote ', out_file
 
     # analysis
-    if params['qtid'] == 0:
-        for i in range(N):
-            corrQT = Res[i+1]['corr']
-            inTrAQT = Res[i+1]['inTrA']
-            outTrAQT = [not x for x in inTrAQT]
-            incorr = [corrQT[j] and inTrAQT[j] for j in range(len(corrQT))]
-            outcorr = [corrQT[j] and outTrAQT[j] for j in range(len(corrQT))]
-            assert(len(corrQT)==sum(inTrAQT)+sum(outTrAQT))
+    for i in range(N):
+        corrQT = Res[i+1]['corr']
+        inTrAQT = Res[i+1]['inTrA']
+        outTrAQT = [not x for x in inTrAQT]
+        incorr = [corrQT[j] and inTrAQT[j] for j in range(len(corrQT))]
+        outcorr = [corrQT[j] and outTrAQT[j] for j in range(len(corrQT))]
+        assert(len(corrQT)==sum(inTrAQT)+sum(outTrAQT))
+        if analyseAll:
             if sum(outTrAQT) == 0:
                 print 'QType (%d): %s, acc: %.2f, inTrA acc: %.2f, outTrA acc: --'%(i+1, Res[i+1]['name'], \
                     100.*sum(corrQT)/len(corrQT), 100.*sum(incorr)/sum(inTrAQT))
             else:
                 print 'QType (%d): %s, acc: %.2f, inTrA acc: %.2f, outTrA acc: %.2f'%(i+1, Res[i+1]['name'], \
                     100.*sum(corrQT)/len(corrQT), 100.*sum(incorr)/sum(inTrAQT), 100.*sum(outcorr)/sum(outTrAQT))
-    else:
-        corrQT = Res[1]['corr']
-        inTrAQT = Res[1]['inTrA']
-        outTrAQT = [not x for x in inTrAQT]
-        incorr = [corrQT[j] and inTrAQT[j] for j in range(len(corrQT))]
-        outcorr = [corrQT[j] and outTrAQT[j] for j in range(len(corrQT))]
-        assert(len(corrQT)==sum(inTrAQT)+sum(outTrAQT))
-        if sum(outTrAQT) == 0:
-            print 'QType (%d): %s, acc: %.2f, inTrA acc: %.2f, outTrA acc: --'%(params['qtid'], Res[1]['name'], \
-                100.*sum(corrQT)/len(corrQT), 100.*sum(incorr)/sum(inTrAQT))
         else:
-            print 'QType (%d): %s, acc: %.2f, inTrA acc: %.2f, outTrA acc: %.2f'%(params['qtid'], Res[1]['name'], \
-                100.*sum(corrQT)/len(corrQT), 100.*sum(incorr)/sum(inTrAQT), 100.*sum(outcorr)/sum(outTrAQT))
+            print 'QType (%d): %s, acc: %.2f, inTrA acc: %.2f, outTrA acc: 0'%(params['qtid'], Res[i+1]['name'], \
+                100.*sum(corrQT)/len(corrQT), 100.*sum(incorr)/sum(inTrAQT))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
